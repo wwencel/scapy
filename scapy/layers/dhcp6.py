@@ -57,7 +57,11 @@ dhcp6_cls_by_type = {1: "DHCP6_Solicit",
                      10: "DHCP6_Reconf",
                      11: "DHCP6_InfoRequest",
                      12: "DHCP6_RelayForward",
-                     13: "DHCP6_RelayReply"}
+                     13: "DHCP6_RelayReply",
+                     14: "DHCP6_Leasequery",
+                     15: "DHCP6_LeasequeryReply",
+                     16: "DHCP6_LeasequeryDone",
+                     17: "DHCP6_LeasequeryData"}
 
 
 def _dhcp6_dispatcher(x, *args, **kargs):
@@ -116,7 +120,12 @@ dhcp6opts = {1: "CLIENTID",
              40: "OPTION_PANA_AGENT",  # RFC5192
              41: "OPTION_NEW_POSIX_TIMEZONE",  # RFC4833
              42: "OPTION_NEW_TZDB_TIMEZONE",  # RFC4833
+             44: "OPTION_LQ_QUERY",  # RFC5007
+             45: "OPTION_LQ_CLIENT_DATA",  # RFC5007
+             46: "OPTION_LQ_CLIENT_TIME",  # RFC5007
+             47: "OPTION_LQ_RELAY_DATA",  # RFC5007
              48: "OPTION_LQ_CLIENT_LINK",  # RFC5007
+             53: "OPTION_RELAY_ID",  # RFC5460
              56: "OPTION_NTP_SERVER",  # RFC5908
              59: "OPT_BOOTFILE_URL",  # RFC5970
              60: "OPT_BOOTFILE_PARAM",  # RFC5970
@@ -171,11 +180,12 @@ dhcp6opts_by_code = {1: "DHCP6OptClientId",
                      41: "DHCP6OptNewPOSIXTimeZone",  # RFC4833
                      42: "DHCP6OptNewTZDBTimeZone",  # RFC4833
                      43: "DHCP6OptRelayAgentERO",  # RFC4994
-                     # 44: "DHCP6OptLQQuery",            #RFC5007
-                     # 45: "DHCP6OptLQClientData",       #RFC5007
-                     # 46: "DHCP6OptLQClientTime",       #RFC5007
-                     # 47: "DHCP6OptLQRelayData",        #RFC5007
-                     48: "DHCP6OptLQClientLink",  # RFC5007
+                     44: "DHCP6OptLqQuery",  # RFC5007
+                     45: "DHCP6OptLqClientData",  # RFC5007
+                     46: "DHCP6OptLqClientTime",  # RFC5007
+                     47: "DHCP6OptLqRelayData",  # RFC5007
+                     48: "DHCP6OptLqClientLink",  # RFC5007
+                     53: "DHCP6OptRelayId",  # RFC5460
                      56: "DHCP6OptNTPServer",  # RFC5908
                      59: "DHCP6OptBootFileUrl",  # RFC5790
                      60: "DHCP6OptBootFileParam",  # RFC5970
@@ -203,7 +213,11 @@ dhcp6types = {1: "SOLICIT",
               10: "RECONFIGURE",
               11: "INFORMATION-REQUEST",
               12: "RELAY-FORW",
-              13: "RELAY-REPL"}
+              13: "RELAY-REPL",
+              14: "LEASEQUERY",
+              15: "LEASEQUERY-REPLY",
+              17: "LEASEQUERY-DATA",
+              16: "LEASEQUERY-DONE"}
 
 
 #####################################################################
@@ -367,6 +381,11 @@ class DHCP6OptClientId(_DHCP6OptGuessPayload):     # RFC 8415 sect 21.2
 class DHCP6OptServerId(DHCP6OptClientId):     # RFC 8415 sect 21.3
     name = "DHCP6 Server Identifier Option"
     optcode = 2
+
+
+class DHCP6OptRelayId(DHCP6OptClientId):     # RFC 5460 sect 5.4.1
+    name = "DHCP6 Relay Identifier Option"
+    optcode = 53
 
 # Should be encapsulated in the option field of IA_NA or IA_TA options
 # Can only appear at that location.
@@ -580,7 +599,12 @@ dhcp6statuscodes = {0: "Success",      # RFC 8415 sect 21.13
                     3: "NoBinding",
                     4: "NotOnLink",
                     5: "UseMulticast",
-                    6: "NoPrefixAvail"}  # From RFC3633
+                    6: "NoPrefixAvail",  # From RFC3633
+                    7: "UnknownQueryType",  # From RFC5007
+                    8: "MalformedQuery",
+                    9: "NotConfigured",
+                    10: "NotAllowed",
+                    11: "QueryTerminated"}  # from RFC5460
 
 
 class DHCP6OptStatusCode(_DHCP6OptGuessPayload):  # RFC 8415 sect 21.13
@@ -956,6 +980,63 @@ class DHCP6OptRelayAgentERO(_DHCP6OptGuessPayload):  # RFC4994
                                     length_from=lambda pkt: pkt.optlen)]
 
 
+class DHCP6(_DHCP6OptGuessPayload):
+    name = "DHCPv6 Generic Message"
+    fields_desc = [ByteEnumField("msgtype", None, dhcp6types),
+                   X3BytesField("trid", 0x000000)]
+    overload_fields = {UDP: {"sport": 546, "dport": 547}}
+
+    def hashret(self):
+        return struct.pack("!I", self.trid)[1:4]
+
+
+_lease_query_type = {
+    1: "query_by_address",
+    2: "query_by_clientid",
+    3: "query_by_relay_identifier",
+    4: "query_by_link_address",
+    5: "query_by_remote_id"
+}
+
+
+class DHCP6OptLqQuery(_DHCP6OptGuessPayload):  # RFC5007
+    name = "DHCP6 Leasequery Option - Query Option"
+    fields_desc = [ShortEnumField("optcode", 44, dhcp6opts),
+                   FieldLenField("optlen", None, length_of="queryopts",
+                                 adjust=lambda pkt, x: x + 17),
+                   ByteEnumField("querytype", 1, _lease_query_type),
+                   IP6Field("linkaddr", "0::0"),
+                   PacketListField("queryopts", [], _DHCP6OptGuessPayloadElt,
+                                   length_from=lambda pkt: pkt.optlen - 17)]
+
+
+class DHCP6OptLqClientData(_DHCP6OptGuessPayload):  # RFC5007
+    name = "DHCP6 Leasequery Option - Client Data Option"
+    fields_desc = [ShortEnumField("optcode", 45, dhcp6opts),
+                   FieldLenField("optlen", None, length_of="clientoptions",
+                                 fmt="!H"),
+                   PacketListField("clientoptions", [],
+                                   _DHCP6OptGuessPayloadElt,
+                                   length_from=lambda pkt: pkt.optlen)]
+
+
+class DHCP6OptLqClientTime(_DHCP6OptGuessPayload):  # RFC5007
+    name = "DHCP6 Leasequery Option - Client Last Transaction Time Option"
+    fields_desc = [ShortEnumField("optcode", 46, dhcp6opts),
+                   FieldLenField("optlen", 4),
+                   IntField("clientlasttransationtime", 0)]
+
+
+class DHCP6OptLqRelayData(_DHCP6OptGuessPayload):  # RFC5007
+    name = "DHCP6 Leasequery Option - Relay Data"
+    fields_desc = [ShortEnumField("optcode", 47, dhcp6opts),
+                   FieldLenField("optlen", None, length_of="message",
+                                 adjust=lambda pkt, x: x + 16),
+                   IP6Field("peeraddr", "::"),
+                   PacketLenField("message", DHCP6(), _dhcp6_dispatcher,
+                                  length_from=lambda p: p.optlen)]
+
+
 class DHCP6OptLQClientLink(_DHCP6OptGuessPayload):  # RFC5007
     name = "DHCP6 Client Link Option"
     fields_desc = [ShortEnumField("optcode", 48, dhcp6opts),
@@ -1138,15 +1219,6 @@ DHCP6PrefVal = ""  # la valeur de preference a utiliser dans
 # a chaque emission et doivent matcher dans les reponses faites par
 # les clients
 
-
-class DHCP6(_DHCP6OptGuessPayload):
-    name = "DHCPv6 Generic Message"
-    fields_desc = [ByteEnumField("msgtype", None, dhcp6types),
-                   X3BytesField("trid", 0x000000)]
-    overload_fields = {UDP: {"sport": 546, "dport": 547}}
-
-    def hashret(self):
-        return struct.pack("!I", self.trid)[1:4]
 
 #    DHCPv6 Relay Message Option                                    #
 
@@ -1378,6 +1450,79 @@ class DHCP6_Reconf(DHCP6):
 class DHCP6_InfoRequest(DHCP6):
     name = "DHCPv6 Information Request Message"
     msgtype = 11
+
+#####################################################################
+# Leasequery Message
+# RFC 5007
+# sent by clients to request information about single client (RFC 5007
+# or multiple clients (RFC 5460)
+# - must include client id
+# - must include option leasequery query option
+# - may include server id
+# leasequery query option is used to identify client(s) on which it wish
+# to access information
+# This message can be used in two different ways:
+# - using procedure from RFC 5007, sent over UDP to perform leasequery
+#   and receive information about single client
+# - using procedure from RFC 5460, sent over TCP to perform bulk leasequery
+#   to receive information about multiple clients (each client information
+#   is sent in separate leasequery data message.
+#         LEASEQUERY xid 2 ----->
+#                         <-----       LEASEQUERY-REPLY xid 2
+#                         <-----       LEASEQUERY-DATA xid 2
+#                         <-----       LEASEQUERY-DATA xid 2
+#                         <-----       LEASEQUERY-DONE xid 2
+# Use scapy dhcp6 module to build message covert to raw() and send over
+# separate TCP connection
+
+
+class DHCP6_Leasequery(DHCP6):
+    name = "DHCPv6 Leasequery Message"
+    msgtype = 14
+
+#####################################################################
+# Leasequery Reply Message
+# RFC 5007
+# sent by servers as response to Leasequery message containing client data
+# - must not include server-id option
+# - should include status code option
+# - if successful should include option leasequery client option
+
+
+class DHCP6_LeasequeryReply(DHCP6):
+    name = "DHCPv6 Leasequery Reply Message"
+    msgtype = 15
+
+    def answers(self, other):
+        return isinstance(other, DHCP6_Leasequery) and self.trid == other.trid
+
+#####################################################################
+# Leasequery Data Message
+# RFC 5460 TCP connection required
+# sent by servers to client with info about single client
+
+
+class DHCP6_LeasequeryData(DHCP6):
+    name = "DHCPv6 Leasequery Data Message"
+    msgtype = 17
+
+    def answers(self, other):
+        return isinstance(other, DHCP6_Leasequery) and self.trid == other.trid
+
+#####################################################################
+# Leasequery Done Message
+# RFC 5460 TCP connection required
+# send by servers to a client to indicate that transmission of all clients
+# information was concluded.
+
+
+class DHCP6_LeasequeryDone(DHCP6):
+    name = "DHCPv6 Leasequery Done Message"
+    msgtype = 16
+
+    def answers(self, other):
+        return isinstance(other, DHCP6_Leasequery) and self.trid == other.trid
+
 
 #####################################################################
 # sent between Relay Agents and Servers

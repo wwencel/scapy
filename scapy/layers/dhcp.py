@@ -228,6 +228,8 @@ DHCPTypes = {
     11: "lease_unassigned",
     12: "lease_unknown",
     13: "lease_active",
+    14: "bulk_leasequery",
+    15: "leasequery_done"
 }
 
 DHCPOptions = {
@@ -351,6 +353,13 @@ DHCPOptions = {
          ByteEnumField("algorithm", 1, {1: "HMAC-MD5"})),
     146: "rdnss-selection",
     150: IPField("tftp_server_address", "0.0.0.0"),
+    151: "status-code",
+    152: IntField("base-time", 1),
+    153: IntField("start-time-of-state",1),
+    154: IntField("query-start-time", 1),
+    155: IntField("query-end-time", 1),
+    156: ByteField("dhcp-state", 0),
+    157: ByteField("data-source", 0),
     159: "v4-portparams",
     160: StrField("v4-captive-portal", ""),
     161: StrField("mud-url", ""),

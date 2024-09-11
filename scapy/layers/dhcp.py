@@ -349,6 +349,7 @@ DHCPOptions = {
     136: IPField("pana-agent", "0.0.0.0"),
     137: "v4-lost",
     138: IPField("capwap-ac-v4", "0.0.0.0"),
+    162: "v4-dnr",  # RFC9463
     141: "sip_ua_service_domains",
     146: "rdnss-selection",
     150: IPField("tftp_server_address", "0.0.0.0"),

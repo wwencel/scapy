@@ -137,6 +137,7 @@ dhcp6opts = {1: "CLIENTID",
              79: "OPTION_CLIENT_LINKLAYER_ADDR",  # RFC6939
              103: "OPTION_CAPTIVE_PORTAL",  # RFC8910
              112: "OPTION_MUD_URL",  # RFC8520
+             144: "OPTION_V6_DNR",  # RFC9463
              }
 
 dhcp6opts_by_code = {1: "DHCP6OptClientId",
@@ -197,6 +198,7 @@ dhcp6opts_by_code = {1: "DHCP6OptClientId",
                      79: "DHCP6OptClientLinkLayerAddr",  # RFC6939
                      103: "DHCP6OptCaptivePortal",  # RFC8910
                      112: "DHCP6OptMudUrl",  # RFC8520
+                     144: "DHCPOptDNR",  # RFC9463
                      }
 
 
@@ -1182,6 +1184,42 @@ class DHCP6OptMudUrl(_DHCP6OptGuessPayload):  # RFC8520
                                length_from=lambda pkt: pkt.optlen,
                                max_length=253,
                                )]
+
+
+class DHCPOptDNR(_DHCP6OptGuessPayload): # RFC9463
+    """ This class represents Discovery of Network-related Resolvers.
+    It's one of the most complex DHCPv6 options. A reasonable example of wire-encoding
+    is available in [1]. An example use:
+
+    dnr = DHCPOptDNR(servicepriority=100,
+                     adn="foo.org",
+                     addrs=["2001:db8::1", "2001:db8::2"],
+                     svcparams="SVCPARAMS")
+
+    For more realistic examples of svcparams, see [2].
+
+    References:
+
+    1. https://kea.readthedocs.io/en/kea-2.6.1/arm/dhcp6-srv.html#dnr-discovery-of-network-designated-resolvers-options-for-dhcpv6
+    2. https://www.rfc-editor.org/rfc/rfc9461#name-examples
+    """
+    name = "DHCP6 Option - Discovery of Network-designated Resolvers (DNR)"
+    fields_desc = [ShortEnumField("optcode", 144, dhcp6opts),
+                   FieldLenField("optlen", 0, length_of="optdata"), # This field is set in post_build
+                   ShortField("servicepriority", 1),
+                   FieldLenField("adnlen", None, length_of="adn"),
+                    DNSStrField("adn", "", length_from=lambda pkt: pkt.adnlen),
+                    FieldLenField("addrslen", None, length_of="addrs"),
+                    IP6ListField("addrs", [], length_from=lambda pkt: pkt.addrslen),
+                    StrField("svcparams", "")]
+
+    def post_build(self,pkt, payload):
+        """ Need to calculate size of the DNR option. Let's take
+        actual byte length and decrease it by 4 (option-len in DHCPv6
+        is expressed as (whole option) - (header length). The
+        header length is 4 (2 bytes for opt-type and 2 for len field)."""
+        l = len(pkt) - 4
+        return pkt[:2] + l.to_bytes(2,'big') + pkt[4:] + payload
 
 
 #####################################################################

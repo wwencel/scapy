@@ -61,7 +61,10 @@ dhcp6_cls_by_type = {1: "DHCP6_Solicit",
                      14: "DHCP6_Leasequery",
                      15: "DHCP6_LeasequeryReply",
                      16: "DHCP6_LeasequeryDone",
-                     17: "DHCP6_LeasequeryData"}
+                     17: "DHCP6_LeasequeryData",
+                     36: "DHCP6_AddrRegInform",
+                     37: "DHCP6_AddrRegReply"
+                     }
 
 
 def _dhcp6_dispatcher(x, *args, **kargs):
@@ -138,6 +141,7 @@ dhcp6opts = {1: "CLIENTID",
              103: "OPTION_CAPTIVE_PORTAL",  # RFC8910
              112: "OPTION_MUD_URL",  # RFC8520
              144: "OPTION_V6_DNR",  # RFC9463
+             148: "OPTION_ADDR_REG_ENABLE"  # RFC9686
              }
 
 dhcp6opts_by_code = {1: "DHCP6OptClientId",
@@ -199,6 +203,7 @@ dhcp6opts_by_code = {1: "DHCP6OptClientId",
                      103: "DHCP6OptCaptivePortal",  # RFC8910
                      112: "DHCP6OptMudUrl",  # RFC8520
                      144: "DHCPOptDNR",  # RFC9463
+                     148: "DHCP6OptAddrRegEnable"  # RFC9686
                      }
 
 
@@ -219,7 +224,9 @@ dhcp6types = {1: "SOLICIT",
               14: "LEASEQUERY",
               15: "LEASEQUERY-REPLY",
               17: "LEASEQUERY-DATA",
-              16: "LEASEQUERY-DONE"}
+              16: "LEASEQUERY-DONE",
+              36: "ADDR-REG-INFORM",
+              37: "ADDR-REG-REPLY"}
 
 
 #####################################################################
@@ -1222,6 +1229,16 @@ class DHCPOptDNR(_DHCP6OptGuessPayload): # RFC9463
         return pkt[:2] + l.to_bytes(2,'big') + pkt[4:] + payload
 
 
+class DHCP6OptAddrRegEnable(_DHCP6OptGuessPayload):  # RFC9686
+    """DHCPv6 Address Registration Option.
+    This option indicates that the server supports the address registration mechanism.
+    The option has no data (length = 0).
+    """
+    name = "DHCP6 Option - Address Registration Enable"
+    fields_desc = [ShortEnumField("optcode", 148, dhcp6opts),
+                   ShortField("optlen", 0)]
+
+
 #####################################################################
 #                          DHCPv6 messages                          #
 #####################################################################
@@ -1560,6 +1577,21 @@ class DHCP6_LeasequeryDone(DHCP6):
 
     def answers(self, other):
         return isinstance(other, DHCP6_Leasequery) and self.trid == other.trid
+
+
+class DHCP6_AddrRegInform(DHCP6):
+    name = "DHCPv6 Address Registration Inform Message"
+    msgtype = 36
+    overload_fields = {UDP: {"sport": 546, "dport": 547}}
+
+
+class DHCP6_AddrRegReply(DHCP6):
+    name = "DHCPv6 Address Registration Reply Message"
+    msgtype = 37
+    overload_fields = {UDP: {"sport": 547, "dport": 546}}
+
+    def answers(self, other):
+        return isinstance(other, DHCP6_AddrRegInform) and self.trid == other.trid
 
 
 #####################################################################
